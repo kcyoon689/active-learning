@@ -40,16 +40,16 @@ def create_loaders(args):
                                             target_transform=VOCAnnotationTransform())
 
     else:
-        supervised_dataset = COCODetection(root=args.dataset_root, supervised_indices=labeled_set, image_set='train2014', 
+        supervised_dataset = COCODetection(root=args.dataset_root, supervised_indices=labeled_set, image_set='train2014',
                                            transform=SSDAugmentation(args.cfg['min_dim']),
-                                           target_transform=COCOAnnotationTransform(), 
+                                           target_transform=COCOAnnotationTransform(),
                                            dataset_name='MS COCO')
 
         unsupervised_dataset = COCODetection(root=args.dataset_root, supervised_indices=None, image_set='val2014',
                                             transform=SSDAugmentation(args.cfg['min_dim']),
-                                            target_transform=COCOAnnotationTransform(), 
+                                            target_transform=COCOAnnotationTransform(),
                                             dataset_name='MS COCO')
-    
+
 
     supervised_data_loader = data.DataLoader(supervised_dataset, batch_size=args.batch_size,
                                              num_workers=args.num_workers,
@@ -66,7 +66,7 @@ def create_loaders(args):
     return supervised_dataset, supervised_data_loader, unsupervised_dataset, unsupervised_data_loader, indices, labeled_set, unlabeled_set
 
 
-def change_loaders(args, supervised_dataset, unsupervised_dataset, labeled_set, 
+def change_loaders(args, supervised_dataset, unsupervised_dataset, labeled_set,
                    unlabeled_set, indices, net, pseudo=True):
     print("Labeled set size: " + str(len(labeled_set)))
     unsupervised_data_loader = data.DataLoader(unsupervised_dataset, batch_size=1,
@@ -83,7 +83,7 @@ def change_loaders(args, supervised_dataset, unsupervised_dataset, labeled_set,
             voc = False
             num_classes = 81
         pseudo_labels = predict_pseudo_labels(unlabeled_set=unlabeled_set, net_name=net,
-                                                  threshold=args.pseudo_threshold, root=args.dataset_root, 
+                                                  threshold=args.pseudo_threshold, root=args.dataset_root,
                                                   voc=voc, num_classes=num_classes)
     else:
         pseudo_labels = {}
@@ -95,9 +95,9 @@ def change_loaders(args, supervised_dataset, unsupervised_dataset, labeled_set,
                                           transform=SSDAugmentation(args.cfg['min_dim'], MEANS),
                                           pseudo_labels=pseudo_labels)
     else:
-        supervised_dataset = COCODetection(root=args.dataset_root, supervised_indices=labeled_set, image_set='train2014', 
+        supervised_dataset = COCODetection(root=args.dataset_root, supervised_indices=labeled_set, image_set='train2014',
                                            transform=SSDAugmentation(args.cfg['min_dim']),
-                                           target_transform=COCOAnnotationTransform(), 
+                                           target_transform=COCOAnnotationTransform(),
                                            dataset_name='MS COCO',
                                            pseudo_labels=pseudo_labels)
 

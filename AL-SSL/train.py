@@ -37,14 +37,14 @@ def str2bool(v):
 class get_al_hyperparams():
     def __init__(self, dataset_name='voc'):
         self.dataset_name = dataset_name
-        self.dataset_path = {'voc': '/usr/wiss/elezi/data/VOC0712',
-                             'coco': '/usr/wiss/elezi/data/coco'}
+        self.dataset_path = {'voc': 'data/VOC0712',
+                             'coco': 'data/coco2014'}
 
         self.num_ims = {'voc': 16551, 'coco': 82081}
         self.num_init = {'voc': 2011, 'coco': 5000}
         self.pseudo_threshold = {'voc': 0.99, 'coco': 0.75}
         self.config = {'voc': voc300, 'coco': coco}
-        self.batch_size = {'voc': 16, 'coco': 32}
+        self.batch_size = {'voc': 4, 'coco': 8}
 
     def get_dataset_path(self):
         return self.dataset_path[self.dataset_name]
@@ -72,7 +72,7 @@ class get_al_hyperparams():
 parser = argparse.ArgumentParser(
     description='Single Shot MultiBox Detector Training With Pytorch')
 train_set = parser.add_mutually_exclusive_group()
-al_hyperparams = get_al_hyperparams('voc') # 'voc' for voc, 'coco' for coco 
+al_hyperparams = get_al_hyperparams('coco') # 'voc' for voc, 'coco' for coco
 parser.add_argument('--dataset_name', default=al_hyperparams.get_dataset_name(), type=str,
                     help='Dataset name')
 parser.add_argument('--cfg', default=al_hyperparams.get_config(), type=dict,
@@ -112,7 +112,7 @@ parser.add_argument('--weight_decay', default=5e-4, type=float,
                     help='Weight decay for SGD')
 parser.add_argument('--gamma', default=0.1, type=float,
                     help='Gamma update for SGD')
-parser.add_argument('--save_folder', default='../al_ssl/weights/',
+parser.add_argument('--save_folder', default='weights/',
                     help='Directory for saving checkpoint models')
 parser.add_argument('--net_name', default=None, type=str,
                     help='the net checkpoint we need to load')
@@ -375,7 +375,7 @@ def main():
             elif args.criterion_select == 'consistency':
                 batch_iterator = iter(unsupervised_data_loader)
                 labeled_set, unlabeled_set = active_learning_inconsistency(args, batch_iterator, labeled_set, unlabeled_set, net,
-                                                                     args.cfg['num_classes'], 
+                                                                     args.cfg['num_classes'],
                                                                      args.criterion_select,
                                                                      loader=unsupervised_data_loader)
             elif args.criterion_select == 'combined':
@@ -384,7 +384,7 @@ def main():
                 labeled_set, unlabeled_set = combined_score(args, batch_iterator, labeled_set, unlabeled_set, net,
                                                             unsupervised_data_loader)
 
-        supervised_data_loader, unsupervised_data_loader = change_loaders(args, supervised_dataset, 
+        supervised_data_loader, unsupervised_data_loader = change_loaders(args, supervised_dataset,
             unsupervised_dataset, labeled_set, unlabeled_set, indices, net_name, pseudo=args.do_PL)
         net, net_name = train(supervised_dataset, supervised_data_loader, args.cfg, labeled_set, supervised_dataset,
                               indices)

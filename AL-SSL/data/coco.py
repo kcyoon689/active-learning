@@ -16,7 +16,7 @@ import torchvision.transforms as transforms
 # https://github.com/NVlabs/AL-SSL/
 
 
-COCO_ROOT = '/usr/wiss/elezi/data/coco'
+COCO_ROOT = 'data/coco'
 IMAGES = 'images'
 ANNOTATIONS = 'annotations'
 COCO_API = 'PythonAPI'
