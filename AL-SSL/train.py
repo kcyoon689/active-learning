@@ -247,7 +247,7 @@ def train(dataset, data_loader, cfg, labeled_set, unsupervised_dataset, indices)
         net, optimizer = load_net_optimizer_multi(cfg)
         net.train()
         for iteration in range(cfg['max_iter']):
-            print(iteration)
+            # print(iteration)
 
             if iteration in cfg['lr_steps']:
                 step_index += 1
@@ -295,7 +295,7 @@ def train(dataset, data_loader, cfg, labeled_set, unsupervised_dataset, indices)
             else:
                 loss_l, loss_c = criterion(output, targets, np.array(new_semis)[semis_index])
             loss = loss_l + loss_c + consistency_loss
-            print(loss)
+            # print(loss)
 
             if (loss.data > 0):
                 optimizer.zero_grad()
