@@ -23,6 +23,7 @@ from csd import build_ssd_con
 from data import *
 from layers.modules import MultiBoxLoss
 from loaders import create_loaders, change_loaders
+import wandb
 
 random.seed(314)
 torch.manual_seed(314)
@@ -224,7 +225,7 @@ def rampweight(iteration):
     return ramp_weight
 
 
-def train(dataset, data_loader, cfg, labeled_set, supervised_dataset, indices):
+def train(dataset, data_loader, cfg, labeled_set, unsupervised_dataset, indices):
     # net, optimizer = load_net_optimizer_multi(cfg)
     criterion = MultiBoxLoss(cfg['num_classes'], 0.5, True, 0, True, 3, 0.5,
                              False, args.cuda)
@@ -300,6 +301,19 @@ def train(dataset, data_loader, cfg, labeled_set, supervised_dataset, indices):
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
+
+                # log metrics to wandb
+                wandb.log({
+                    'supervised_dataset': len(dataset),
+                    'unsupervised_dataset': len(unsupervised_dataset),
+                    'lr': args.lr,
+
+                    'ramp_weight': ramp_weight,
+                    'loss': loss,
+                    'loss_c': loss_c,
+                    'loss_l': loss_l,
+                    'consistency_loss': consistency_loss,
+                    })
             else:
                 print("Loss is 0")
 
@@ -350,9 +364,38 @@ def weights_init(m):
 
 def main():
     print(os.path.abspath(os.getcwd()))
+    wandb.init(
+        # set the wandb project where this run will be logged
+        project="AL-SSL, LL4AL",
+
+        # track hyperparameters and run metadata
+        config={
+        'batch_size': 32,
+        'learning_rate': 0.02,
+        'architecture': 'CNN',
+        'dataset': 'COCO',
+        'epochs': args.cfg['max_iter'],
+        'num_classes': args.cfg['num_classes'],
+        'lr_steps': args.cfg['lr_steps'],
+        'feature_maps': args.cfg['feature_maps'],
+        'min_dim': args.cfg['min_dim'],
+        'steps': args.cfg['steps'],
+        'min_sizes': args.cfg['min_sizes'],
+        'max_sizes': args.cfg['max_sizes'],
+        'aspect_ratios': args.cfg['aspect_ratios'],
+        'variance': args.cfg['variance'],
+        'clip': args.cfg['clip'],
+        }
+    )
     if args.cuda: cudnn.benchmark = True
     supervised_dataset, supervised_data_loader, unsupervised_dataset, unsupervised_data_loader, indices, labeled_set, unlabeled_set = create_loaders(args)
-    net, net_name = train(supervised_dataset, supervised_data_loader, args.cfg, labeled_set, supervised_dataset, indices)
+    net, net_name = train(
+        dataset=supervised_dataset,
+        data_loader=supervised_data_loader,
+        cfg=args.cfg,
+        labeled_set=labeled_set,
+        unsupervised_dataset=unsupervised_dataset,
+        indices=indices)
 
     net, _ = load_net_optimizer_multi(args.cfg)
     if not args.is_cluster:
@@ -386,8 +429,13 @@ def main():
 
         supervised_data_loader, unsupervised_data_loader = change_loaders(args, supervised_dataset,
             unsupervised_dataset, labeled_set, unlabeled_set, indices, net_name, pseudo=args.do_PL)
-        net, net_name = train(supervised_dataset, supervised_data_loader, args.cfg, labeled_set, supervised_dataset,
-                              indices)
+        net, net_name = train(
+            dataset=supervised_dataset,
+            data_loader=supervised_data_loader,
+            cfg=args.cfg,
+            labeled_set=labeled_set,
+            unsupervised_dataset=unsupervised_dataset,
+            indices=indices)
 
 
 if __name__ == '__main__':

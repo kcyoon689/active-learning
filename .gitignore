@@ -162,3 +162,6 @@ cython_debug/
 AL-SSL/data/coco2014
 AL-SSL/data/coco
 *.pth
+VOC_dataset/
+wandb/
+*.zip
