@@ -10,6 +10,7 @@ import torch
 
 from collections import defaultdict
 from copy import deepcopy
+from tqdm import trange
 
 from layers.box_utils import decode, nms
 
@@ -33,8 +34,10 @@ def active_learning_inconsistency(args, batch_iterator, labeled_set, unlabeled_s
     batch_iterator = iter(loader)
     thresh = args.thresh
 
-    for j in range(len(batch_iterator)):  # 3000
-        print(j)
+    for j in trange(len(batch_iterator)):  # 3000
+        if j > 10:
+            break
+        # print(j)
         images, lab, _ = next(batch_iterator)
         images = images.cuda()
 
@@ -90,7 +93,7 @@ def active_learning_inconsistency(args, batch_iterator, labeled_set, unlabeled_s
                     UC_max = UC_max_temp
                 q += 1
 
-        if count_num == 0:  
+        if count_num == 0:
             criterion_UC[j] = 0
         else:
             criterion_UC[j] = UC_max
@@ -115,8 +118,10 @@ def active_learning_entropy(args, batch_iterator, labeled_set, unlabeled_set, ne
     batch_iterator = iter(loader)
     thresh = args.thresh
 
-    for j in range(len(batch_iterator)):  # 3000
-        print(j)
+    for j in trange(len(batch_iterator)):  # 3000
+        if j > 10:
+            break
+        # print(j)
         images, lab, _ = next(batch_iterator)
         images = images.cuda()
 
@@ -171,10 +176,10 @@ def active_learning_entropy(args, batch_iterator, labeled_set, unlabeled_set, ne
                     UC_max += entropy.item()
                     q += 1
 
-            if count_num == 0:  
+            if count_num == 0:
                 criterion_UC[j] = 0
             else:
-                criterion_UC[j] = UC_max / count_num  
+                criterion_UC[j] = UC_max / count_num
 
         else:
             count_num = 0
@@ -214,8 +219,8 @@ def active_learning_entropy(args, batch_iterator, labeled_set, unlabeled_set, ne
 
 
 def combined_score(args, batch_iterator, labeled_set, unlabeled_set, net, unsupervised_data_loader):
-    entropy_score = active_learning_entropy(args, batch_iterator, labeled_set, unlabeled_set, net, 
-                                            args.cfg['num_classes'], 'entropy', 
+    entropy_score = active_learning_entropy(args, batch_iterator, labeled_set, unlabeled_set, net,
+                                            args.cfg['num_classes'], 'entropy',
                                             loader=unsupervised_data_loader)
     consistency_score = active_learning_inconsistency(args, batch_iterator, labeled_set, unlabeled_set, net,
                                                       args.cfg['num_classes'], 'consistency_class',

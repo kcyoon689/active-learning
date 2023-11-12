@@ -34,10 +34,20 @@ def predict_pseudo_labels(unlabeled_set, net_name, threshold=0.5, root='../tmp/V
         testset = COCODetection(root=root, image_set='train2014',
                             supervised_indices=None,
                             transform=None)
- 
+
     print("Doing PL")
-    net = build_ssd('test', 300, num_classes)  
+    net = build_ssd('test', 300, num_classes)
     net = nn.DataParallel(net)
+
+    # from collections import OrderedDict
+    # state_dict = torch.load(net_name)
+    # new_state_dict = OrderedDict()
+    # for k, v in state_dict.items():
+    #     name = k[7:] # remove `module.`
+    #     new_state_dict[name] = v
+    # # load params
+    # net.load_state_dict(new_state_dict)
+
     net.load_state_dict(torch.load(net_name))
     boxes = get_pseudo_labels(testset, net, labels, unlabeled_set=unlabeled_set, threshold=threshold, voc=voc)
     return boxes
@@ -73,7 +83,7 @@ def get_pseudo_labels(testset, net, labels, unlabeled_set=None, threshold=0.99, 
                     label_name = labels[i - 1]
                 else:
                     label_name = labels[i - 1]
-                pt = (detections[0, i, j, 1:5] * scale).cpu().numpy() 
+                pt = (detections[0, i, j, 1:5] * scale).cpu().numpy()
                 j += 1
                 # sore as [prediction_confidence, label_id, label_name, height, width, bbox_coordiates in range [0, inf]
                 boxes[img_id].append([score.cpu().detach().item(), (i-1), label_name, image.shape[0], image.shape[1], int(pt[0]), int(pt[1]), int(pt[2]), int(pt[3])])

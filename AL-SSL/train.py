@@ -38,10 +38,10 @@ def str2bool(v):
 class get_al_hyperparams():
     def __init__(self, dataset_name='voc'):
         self.dataset_name = dataset_name
-        self.dataset_path = {'voc': 'data/VOC0712',
-                             'coco': 'data/coco2014'}
+        self.dataset_path = {'voc': '/home/yoon-k/data/VOC0712',
+                             'coco': '/home/yoon-k/data/coco'}
 
-        self.num_ims = {'voc': 16551, 'coco': 82081}
+        self.num_ims = {'voc': 16551, 'coco': 82081} # 82081
         self.num_init = {'voc': 2011, 'coco': 5000}
         self.pseudo_threshold = {'voc': 0.99, 'coco': 0.75}
         self.config = {'voc': voc300, 'coco': coco}
@@ -247,7 +247,7 @@ def train(dataset, data_loader, cfg, labeled_set, unsupervised_dataset, indices)
         net, optimizer = load_net_optimizer_multi(cfg)
         net.train()
         for iteration in range(cfg['max_iter']):
-            # print(iteration)
+            print(iteration)
 
             if iteration in cfg['lr_steps']:
                 step_index += 1
@@ -295,7 +295,7 @@ def train(dataset, data_loader, cfg, labeled_set, unsupervised_dataset, indices)
             else:
                 loss_l, loss_c = criterion(output, targets, np.array(new_semis)[semis_index])
             loss = loss_l + loss_c + consistency_loss
-            # print(loss)
+            print(loss)
 
             if (loss.data > 0):
                 optimizer.zero_grad()
@@ -322,7 +322,7 @@ def train(dataset, data_loader, cfg, labeled_set, unsupervised_dataset, indices)
                 break
             t1 = time.time()
 
-            if iteration % 10 == 0:
+            if iteration % 100 == 0:
                 print('timer: %.4f sec.' % (t1 - t0))
                 print('iter ' + repr(
                     iteration) + ': loss: %.4f , loss_c: %.4f , loss_l: %.4f , loss_con: %.4f, lr : %.4f, super_len : %d\n' % (
@@ -330,13 +330,13 @@ def train(dataset, data_loader, cfg, labeled_set, unsupervised_dataset, indices)
                           float(optimizer.param_groups[0]['lr']),
                           len(sup_image_index)))
 
-            if iteration != 0 and (iteration + 1) % 120000 == 0:
+            if iteration != 0 and (iteration + 1) % 120 == 0:
                 print('Saving state, iter:', iteration)
                 net_name = 'weights/' + repr(iteration + 1) + args.criterion_select + '_id_' + str(args.id)  + \
                            '_pl_threshold_' + str(args.pseudo_threshold) + '_labeled_set_' + str(len(labeled_set)) + '_.pth'
                 torch.save(net.state_dict(), net_name)
 
-            if iteration >= 119000:
+            if iteration >= 119:
                 finish_flag = False
     return net, net_name
 
