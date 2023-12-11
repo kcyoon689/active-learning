@@ -436,6 +436,7 @@ def main():
             data_loader=supervised_data_loader,
             cfg=args.cfg,
             labeled_set=labeled_set,
+            unlabeled_set=unlabeled_set,
             unsupervised_dataset=unsupervised_dataset,
             indices=indices)
 
