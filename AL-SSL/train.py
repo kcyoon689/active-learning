@@ -249,8 +249,6 @@ def train(dataset, data_loader, cfg, labeled_set, unlabeled_set, unsupervised_da
         net.train()
         pbar = trange(cfg['max_iter'])
         for iteration in pbar:
-            pbar.set_description("[train]")
-
             if iteration in cfg['lr_steps']:
                 step_index += 1
                 adjust_learning_rate(optimizer, args.gamma, step_index)

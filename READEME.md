@@ -2,6 +2,25 @@
 
 ## How to Install
 
+### with static forward functions
+
+- RTX 3080
+- nvidia-driver-545
+- CUDA 11.7
+
+```bash
+conda create -n py310 python=3.10
+conda activate py310
+
+conda install pytorch==1.13.1 torchvision==0.14.1 torchaudio==0.13.1 pytorch-cuda=11.7 -c pytorch -c nvidia
+conda install tqdm matplotlib dataclasses pillow
+pip install opencv-python wandb pycocotools
+
+sh data/scripts/COCO2014.sh
+```
+
+### original
+
 - RTX 2080
 - nvidia-driver-545
 - CUDA 10.0
