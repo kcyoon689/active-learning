@@ -46,7 +46,7 @@ class get_al_hyperparams():
         self.num_init = {'voc': 2011, 'coco': 5000}
         self.pseudo_threshold = {'voc': 0.99, 'coco': 0.75}
         self.config = {'voc': voc300, 'coco': coco}
-        self.batch_size = {'voc': 16, 'coco': 8}
+        self.batch_size = {'voc': 16, 'coco': 32}
 
     def get_dataset_path(self):
         return self.dataset_path[self.dataset_name]
@@ -102,7 +102,7 @@ parser.add_argument('--basenet', default='vgg16_reducedfc.pth',
                     help='Pretrained base model')
 parser.add_argument('--batch_size', default=al_hyperparams.get_batch_size(), type=int,
                     help='Batch size for training')
-parser.add_argument('--num_workers', default=8, type=int,
+parser.add_argument('--num_workers', default=32, type=int,
                     help='Number of workers used in dataloading')
 parser.add_argument('--cuda', default=True, type=str2bool,
                     help='Use CUDA to train model')
@@ -120,7 +120,7 @@ parser.add_argument('--net_name', default=None, type=str,
                     help='the net checkpoint we need to load')
 parser.add_argument('--is_apex', default=0, type=int,
                     help='if 1 use apex to do mixed precision training')
-parser.add_argument('--is_cluster', default=1, type=int,
+parser.add_argument('--is_cluster', default=0, type=int,
                     help='if 1 use GPU cluster, otherwise do the computations on the local PC')
 parser.add_argument('--do_PL', default=1, type=int,
                     help='if 1 use pseudo-labels, otherwise do not use them')

@@ -40,16 +40,21 @@ def predict_pseudo_labels(unlabeled_set, net_name, threshold=0.5, root='../tmp/V
     net = build_ssd('test', 300, num_classes)
     net = nn.DataParallel(net)
 
-    # from collections import OrderedDict
-    # state_dict = torch.load(net_name)
-    # new_state_dict = OrderedDict()
-    # for k, v in state_dict.items():
-    #     name = k[7:] # remove `module.`
-    #     new_state_dict[name] = v
-    # # load params
-    # net.load_state_dict(new_state_dict)
+    if torch.cuda.device_count() > 1:
+        # for multi-GPU
+        from collections import OrderedDict
+        state_dict = torch.load(net_name)
+        new_state_dict = OrderedDict()
+        for k, v in state_dict.items():
+            # name = k[7:] # remove `module.`
+            name = 'module.' + k # add `module.`
+            new_state_dict[name] = v
+        # load params
+        net.load_state_dict(new_state_dict)
+    else:
+        # for single-GPU
+        net.load_state_dict(torch.load(net_name))
 
-    net.load_state_dict(torch.load(net_name))
     boxes = get_pseudo_labels(testset, net, labels, unlabeled_set=unlabeled_set, threshold=threshold, voc=voc)
     return boxes
 
