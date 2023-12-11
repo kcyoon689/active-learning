@@ -11,6 +11,7 @@ module_path = os.path.abspath(os.path.join('..'))
 if module_path not in sys.path:
     sys.path.append(module_path)
 import random
+from tqdm import tqdm
 import pickle
 from torch.autograd import Variable
 from ssd import build_ssd
@@ -56,8 +57,10 @@ def predict_pseudo_labels(unlabeled_set, net_name, threshold=0.5, root='../tmp/V
 def get_pseudo_labels(testset, net, labels, unlabeled_set=None, threshold=0.99, voc=1):
 
     boxes = defaultdict(list)
-    for ii, img_id in enumerate(unlabeled_set):
-        print(ii)
+    pbar = tqdm(unlabeled_set)
+    for img_id in pbar:
+        pbar.set_description("[get_pseudo_labels]")
+
         image = testset.pull_image(img_id)
         x = cv2.resize(image, (300, 300)).astype(np.float32)
         x -= (104.0, 117.0, 123.0)

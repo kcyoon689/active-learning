@@ -17,6 +17,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.backends.cudnn as cudnn
 import torch.nn.init as init
+from tqdm import trange
 
 from active_learning import combined_score, active_learning_inconsistency, active_learning_entropy
 from csd import build_ssd_con
@@ -38,14 +39,14 @@ def str2bool(v):
 class get_al_hyperparams():
     def __init__(self, dataset_name='voc'):
         self.dataset_name = dataset_name
-        self.dataset_path = {'voc': '/home/yoon-k/data/VOC0712',
-                             'coco': '/home/yoon-k/data/coco'}
+        self.dataset_path = {'voc': '/home/yoonk/data/VOC0712',
+                             'coco': '/home/yoonk/data/coco'}
 
         self.num_ims = {'voc': 16551, 'coco': 82081} # 82081
         self.num_init = {'voc': 2011, 'coco': 5000}
         self.pseudo_threshold = {'voc': 0.99, 'coco': 0.75}
         self.config = {'voc': voc300, 'coco': coco}
-        self.batch_size = {'voc': 4, 'coco': 8}
+        self.batch_size = {'voc': 16, 'coco': 8}
 
     def get_dataset_path(self):
         return self.dataset_path[self.dataset_name]
@@ -225,7 +226,7 @@ def rampweight(iteration):
     return ramp_weight
 
 
-def train(dataset, data_loader, cfg, labeled_set, unsupervised_dataset, indices):
+def train(dataset, data_loader, cfg, labeled_set, unlabeled_set, unsupervised_dataset, indices):
     # net, optimizer = load_net_optimizer_multi(cfg)
     criterion = MultiBoxLoss(cfg['num_classes'], 0.5, True, 0, True, 3, 0.5,
                              False, args.cuda)
@@ -246,8 +247,9 @@ def train(dataset, data_loader, cfg, labeled_set, unsupervised_dataset, indices)
     while finish_flag:
         net, optimizer = load_net_optimizer_multi(cfg)
         net.train()
-        for iteration in range(cfg['max_iter']):
-            print(iteration)
+        pbar = trange(cfg['max_iter'])
+        for iteration in pbar:
+            pbar.set_description("[train]")
 
             if iteration in cfg['lr_steps']:
                 step_index += 1
@@ -295,7 +297,7 @@ def train(dataset, data_loader, cfg, labeled_set, unsupervised_dataset, indices)
             else:
                 loss_l, loss_c = criterion(output, targets, np.array(new_semis)[semis_index])
             loss = loss_l + loss_c + consistency_loss
-            print(loss)
+            pbar.set_description(f"[train] loss: {loss} ")
 
             if (loss.data > 0):
                 optimizer.zero_grad()
@@ -306,13 +308,14 @@ def train(dataset, data_loader, cfg, labeled_set, unsupervised_dataset, indices)
                 wandb.log({
                     'supervised_dataset': len(dataset),
                     'unsupervised_dataset': len(unsupervised_dataset),
+                    'unlabeled_set': len(unlabeled_set),
                     'lr': args.lr,
 
-                    'ramp_weight': ramp_weight,
-                    'loss': loss,
+                    'ramp_weight': float(ramp_weight),
+                    'loss': loss.data,
                     'loss_c': loss_c,
-                    'loss_l': loss_l,
-                    'consistency_loss': consistency_loss,
+                    'loss_l': loss_l.data,
+                    'consistency_loss': consistency_loss.data,
                     })
             else:
                 print("Loss is 0")
@@ -394,6 +397,7 @@ def main():
         data_loader=supervised_data_loader,
         cfg=args.cfg,
         labeled_set=labeled_set,
+        unlabeled_set=unlabeled_set,
         unsupervised_dataset=unsupervised_dataset,
         indices=indices)
 
