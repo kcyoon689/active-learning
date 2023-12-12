@@ -89,12 +89,12 @@ def test_voc():
     # load net
     num_classes = len(VOC_CLASSES) + 1 # +1 background
     net = build_ssd('test', 300, num_classes) # initialize SSD
-    net = nn.DataParallel(net)
+    net = nn.DataParallel(net, device_ids=[0])
     net.load_state_dict(torch.load(args.trained_model))
     net.eval()
     print('Finished loading model!')
     # load data
-    testset = VOCDetection(args.voc_root, image_sets=[('2007', 'test')], 
+    testset = VOCDetection(args.voc_root, image_sets=[('2007', 'test')],
                            transform=None, target_transform=VOCAnnotationTransform())
     if args.cuda:
         net = net.cuda()

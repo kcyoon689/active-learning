@@ -38,7 +38,7 @@ def predict_pseudo_labels(unlabeled_set, net_name, threshold=0.5, root='../tmp/V
 
     print("Doing PL")
     net = build_ssd('test', 300, num_classes)
-    net = nn.DataParallel(net)
+    net = nn.DataParallel(net, device_ids=[0])
 
     # if torch.cuda.device_count() > 1:
     # for multi-GPU

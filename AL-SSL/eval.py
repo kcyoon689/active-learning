@@ -380,7 +380,7 @@ def test_net(save_folder, net, cuda, dataset, transform, top_k,
     _t = {'im_detect': Timer(), 'misc': Timer()}
     output_dir = get_output_dir('ssd300_120000', set_type)
     det_file = os.path.join(output_dir, 'detections.pkl')
-    
+
     for i in range(num_images):
         im, gt, h, w, _ = dataset.pull_item(i)
 
@@ -441,7 +441,7 @@ if __name__ == '__main__':
     # load net
     num_classes = len(labelmap) + 1                      # +1 for background
     net = build_ssd('test', 300, num_classes)            # initialize SSD
-    net = nn.DataParallel(net)
+    net = nn.DataParallel(net, device_ids=[0])
     fi_write = open("results.txt", "a")
     for key in net.state_dict():
         print(key)
@@ -450,7 +450,7 @@ if __name__ == '__main__':
     for folder in list_of_folders:
         list_nets = os.listdir(folder)
         for nnn in sorted(list_nets):
-            
+
             net.load_state_dict(torch.load(os.path.join(folder, nnn)))
             net.eval()
             print('Finished loading model!')

@@ -42,8 +42,8 @@ class get_al_hyperparams():
         self.dataset_path = {'voc': '/home/yoonk/data/VOC0712',
                              'coco': '/home/yoonk/data/coco'}
 
-        self.num_ims = {'voc': 16551, 'coco': 82081} # 82081
-        self.num_init = {'voc': 2011, 'coco': 5000}
+        self.num_ims = {'voc': 16551, 'coco': 8208} # 82081
+        self.num_init = {'voc': 2011, 'coco': 500} # 5000
         self.pseudo_threshold = {'voc': 0.99, 'coco': 0.75}
         self.config = {'voc': voc300, 'coco': coco}
         self.batch_size = {'voc': 16, 'coco': 32}
@@ -87,8 +87,8 @@ parser.add_argument('--num_total_images', default=al_hyperparams.get_num_ims(), 
                     help='Number of images in the dataset')
 parser.add_argument('--num_initial_labeled_set', default=al_hyperparams.get_num_init(), type=int,
                     help='Number of initially labeled images')
-parser.add_argument('--acquisition_budget', default=1000, type=int,
-                    help='Active labeling cycle budget')
+parser.add_argument('--acquisition_budget', default=100, type=int,
+                    help='Active labeling cycle budget') # 1000
 parser.add_argument('--num_cycles', default=5, type=int,
                     help='Number of active learning cycles')
 parser.add_argument('--criterion_select', default='combined',
@@ -102,7 +102,7 @@ parser.add_argument('--basenet', default='vgg16_reducedfc.pth',
                     help='Pretrained base model')
 parser.add_argument('--batch_size', default=al_hyperparams.get_batch_size(), type=int,
                     help='Batch size for training')
-parser.add_argument('--num_workers', default=32, type=int,
+parser.add_argument('--num_workers', default=8, type=int,
                     help='Number of workers used in dataloading')
 parser.add_argument('--cuda', default=True, type=str2bool,
                     help='Use CUDA to train model')
@@ -155,7 +155,7 @@ def load_net_optimizer_multi(cfg):
     net.loc.apply(weights_init)
     net.conf.apply(weights_init)
     if args.is_cluster:
-        net = nn.DataParallel(net)
+        net = nn.DataParallel(net, device_ids=[0])
     optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=args.momentum,
                           weight_decay=args.weight_decay)
     return net, optimizer
@@ -401,7 +401,7 @@ def main():
 
     net, _ = load_net_optimizer_multi(args.cfg)
     if not args.is_cluster:
-        net = nn.DataParallel(net)
+        net = nn.DataParallel(net, device_ids=[0])
 
     # net_name = os.path.join('/usr/wiss/elezi/PycharmProjects/al_ssl/weights_good/120000combined_id_2_pl_threshold_0.99_labeled_set_3011_.pth')
     # net.load_state_dict(torch.load(net_name))
