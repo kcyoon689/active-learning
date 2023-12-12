@@ -102,15 +102,7 @@ def active_learning_inconsistency(args, batch_iterator, labeled_set, unlabeled_s
         return criterion_UC
 
     sorted_indices = np.argsort(criterion_UC)[::-1]
-    labeled_set += list(np.array(unlabeled_set)[sorted_indices[:args.acquisition_budget]])
-    unlabeled_set = list(np.array(unlabeled_set)[sorted_indices[args.acquisition_budget:]])
-
-    # assert that sizes of lists are correct and that there are no elements that are in both lists
-    assert len(list(set(labeled_set) | set(unlabeled_set))) == args.num_total_images
-    assert len(list(set(labeled_set) & set(unlabeled_set))) == 0
-
-    # save the labeled set
-    return labeled_set, unlabeled_set
+    return sorted_indices[:args.acquisition_budget * args.multiple_select], sorted_indices[args.acquisition_budget * args.multiple_select:]
 
 
 def active_learning_entropy(args, batch_iterator, labeled_set, unlabeled_set, net, num_classes, criterion_select, loader=None):
@@ -205,17 +197,9 @@ def active_learning_entropy(args, batch_iterator, labeled_set, unlabeled_set, ne
 
     if args.criterion_select == 'combined':
         return criterion_UC
+
     sorted_indices = np.argsort(criterion_UC)[::-1]
-
-    labeled_set += list(np.array(unlabeled_set)[sorted_indices[:args.acquisition_budget]])
-    unlabeled_set = list(np.array(unlabeled_set)[sorted_indices[args.acquisition_budget:]])
-
-    # assert that sizes of lists are correct and that there are no elements that are in both lists
-    assert len(list(set(labeled_set) | set(unlabeled_set))) == args.num_total_images
-    assert len(list(set(labeled_set) & set(unlabeled_set))) == 0
-
-    # save the labeled set
-    return labeled_set, unlabeled_set
+    return sorted_indices[:args.acquisition_budget * args.multiple_select], sorted_indices[args.acquisition_budget * args.multiple_select:]
 
 
 def combined_score(args, batch_iterator, labeled_set, unlabeled_set, net, unsupervised_data_loader):
@@ -232,12 +216,4 @@ def combined_score(args, batch_iterator, labeled_set, unlabeled_set, net, unsupe
     consistency_score[ind] = 0.
 
     sorted_indices = np.argsort(consistency_score)[::-1]
-
-    labeled_set += list(np.array(unlabeled_set)[sorted_indices[:args.acquisition_budget]])
-    unlabeled_set = list(np.array(unlabeled_set)[sorted_indices[args.acquisition_budget:]])
-
-    # assert that sizes of lists are correct and that there are no elements that are in both lists
-    assert len(list(set(labeled_set) | set(unlabeled_set))) == args.num_total_images
-    assert len(list(set(labeled_set) & set(unlabeled_set))) == 0
-
-    return labeled_set, unlabeled_set
+    return sorted_indices[:args.acquisition_budget * args.multiple_select], sorted_indices[args.acquisition_budget * args.multiple_select:]

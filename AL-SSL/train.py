@@ -89,6 +89,8 @@ parser.add_argument('--num_initial_labeled_set', default=al_hyperparams.get_num_
                     help='Number of initially labeled images')
 parser.add_argument('--acquisition_budget', default=100, type=int,
                     help='Active labeling cycle budget') # 1000
+parser.add_argument('--multiple_select', default=2, type=int,
+                    help='Active labeling multiple selected candidate')
 parser.add_argument('--num_cycles', default=5, type=int,
                     help='Number of active learning cycles')
 parser.add_argument('--criterion_select', default='combined',
@@ -296,6 +298,7 @@ def train(dataset, data_loader, cfg, labeled_set, unlabeled_set, unsupervised_da
                 loss_l, loss_c = criterion(output, targets, np.array(new_semis)[semis_index])
             loss = loss_l + loss_c + consistency_loss
             pbar.set_description(f"[train] loss: {loss} ")
+            # TODO: The loss is the target loss of LL4AL
 
             if (loss.data > 0):
                 optimizer.zero_grad()
@@ -306,6 +309,7 @@ def train(dataset, data_loader, cfg, labeled_set, unlabeled_set, unsupervised_da
                 wandb.log({
                     'supervised_dataset': len(dataset),
                     'unsupervised_dataset': len(unsupervised_dataset),
+                    'labeled_set': len(labeled_set),
                     'unlabeled_set': len(unlabeled_set),
                     'lr': args.lr,
 
@@ -413,21 +417,32 @@ def main():
         if args.do_AL:
             if args.criterion_select in ['Max_aver', 'entropy', 'random']:
                 batch_iterator = iter(unsupervised_data_loader)
-                labeled_set, unlabeled_set = active_learning_entropy(args, batch_iterator, labeled_set, unlabeled_set, net,
+                selected_range, unslected_range = active_learning_entropy(args, batch_iterator, labeled_set, unlabeled_set, net,
                                                                    args.cfg['num_classes'],
                                                                    args.criterion_select,
                                                                    loader=unsupervised_data_loader)
             elif args.criterion_select == 'consistency':
                 batch_iterator = iter(unsupervised_data_loader)
-                labeled_set, unlabeled_set = active_learning_inconsistency(args, batch_iterator, labeled_set, unlabeled_set, net,
+                selected_range, unslected_range = active_learning_inconsistency(args, batch_iterator, labeled_set, unlabeled_set, net,
                                                                      args.cfg['num_classes'],
                                                                      args.criterion_select,
                                                                      loader=unsupervised_data_loader)
             elif args.criterion_select == 'combined':
                 print("Combined")
                 batch_iterator = iter(unsupervised_data_loader)
-                labeled_set, unlabeled_set = combined_score(args, batch_iterator, labeled_set, unlabeled_set, net,
+                selected_range, unslected_range = combined_score(args, batch_iterator, labeled_set, unlabeled_set, net,
                                                             unsupervised_data_loader)
+
+            selected_set = list(np.array(unlabeled_set)[selected_range])
+            unlabeled_set = list(np.array(unlabeled_set)[unslected_range])
+
+            # assert that sizes of lists are correct and that there are no elements that are in both lists
+            assert len(list(set(labeled_set) | set(unlabeled_set))) == args.num_total_images
+            assert len(list(set(labeled_set) & set(unlabeled_set))) == 0
+
+        # TODO: Pick data for human annotation as acquisition_budget from acquisition_budget*2 using LL4AL (prediction)
+        # TODO: The rest (acquisition_budget) is merged to unlabeled_set
+        labeled_set += selected_set
 
         supervised_data_loader, unsupervised_data_loader = change_loaders(args, supervised_dataset,
             unsupervised_dataset, labeled_set, unlabeled_set, indices, net_name, pseudo=args.do_PL)
