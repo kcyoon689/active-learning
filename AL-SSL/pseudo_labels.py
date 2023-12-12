@@ -14,7 +14,7 @@ import random
 from tqdm import tqdm
 import pickle
 from torch.autograd import Variable
-from ssd import build_ssd
+from models.ssd import build_ssd
 import torch.nn as nn
 from data import *
 from data import VOC_CLASSES as labels1

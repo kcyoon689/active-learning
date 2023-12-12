@@ -20,7 +20,7 @@ import torch.nn.init as init
 from tqdm import trange
 
 from active_learning import combined_score, active_learning_inconsistency, active_learning_entropy
-from csd import build_ssd_con
+from models.csd import build_ssd_con
 from data import *
 from layers.modules import MultiBoxLoss
 from loaders import create_loaders, change_loaders

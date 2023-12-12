@@ -20,7 +20,7 @@ from utils.augmentations import SSDAugmentation
 from data import VOC_CLASSES as labelmap
 import torch.utils.data as data
 
-from ssd import build_ssd
+from models.ssd import build_ssd
 
 import sys
 import os

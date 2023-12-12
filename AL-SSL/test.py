@@ -18,7 +18,7 @@ from data import VOC_ROOT, VOC_CLASSES as labelmap
 from PIL import Image
 from data import VOCAnnotationTransform, VOCDetection, BaseTransform, VOC_CLASSES
 import torch.utils.data as data
-from ssd import build_ssd
+from models.ssd import build_ssd
 
 parser = argparse.ArgumentParser(description='Single Shot MultiBox Detection')
 parser.add_argument('--trained_model', default='weights_voc_code/120000combined_id_2_pl_threshold_0.99_labeled_set_3011_.pth',
