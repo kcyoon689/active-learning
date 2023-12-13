@@ -180,12 +180,10 @@ def compute_consistency_loss(conf, loc, conf_flip, loc_flip, conf_consistency_cr
     conf_mask_sample = conf.clone()
     loc_mask_sample = loc.clone()
     conf_sampled = conf_mask_sample[mask_conf_index].view(-1, args.cfg['num_classes'])
-    loc_sampled = loc_mask_sample[mask_loc_index].view(-1, 4)
 
     conf_mask_sample_flip = conf_flip.clone()
     loc_mask_sample_flip = loc_flip.clone()
     conf_sampled_flip = conf_mask_sample_flip[mask_conf_index].view(-1, args.cfg['num_classes'])
-    loc_sampled_flip = loc_mask_sample_flip[mask_loc_index].view(-1, 4)
 
     if (mask_val.sum() > 0):
         # Compute Jenson-Shannon divergence (symmetric KL actually)
@@ -198,20 +196,24 @@ def compute_consistency_loss(conf, loc, conf_flip, loc_flip, conf_consistency_cr
         consistency_conf_loss = consistency_conf_loss_a + consistency_conf_loss_b
 
         # Compute location consistency loss
-        consistency_loc_loss_x = torch.mean(torch.pow(loc_sampled[:, 0] + loc_sampled_flip[:, 0], exponent=2))
-        consistency_loc_loss_y = torch.mean(torch.pow(loc_sampled[:, 1] - loc_sampled_flip[:, 1], exponent=2))
-        consistency_loc_loss_w = torch.mean(torch.pow(loc_sampled[:, 2] - loc_sampled_flip[:, 2], exponent=2))
-        consistency_loc_loss_h = torch.mean(torch.pow(loc_sampled[:, 3] - loc_sampled_flip[:, 3], exponent=2))
+        consistency_loc_losses = torch.empty(size=(loc_mask_sample.size()[0], 1), device=consistency_conf_loss.device)
+        for idx in range(loc_mask_sample.size()[0]):
+            single_loc_sampled = loc_mask_sample[idx][mask_loc_index[idx]].view(-1, 4)
+            single_loc_sampled_flip = loc_mask_sample_flip[idx][mask_loc_index[idx]].view(-1, 4)
+            single_consistency_loc_loss_x = torch.mean(torch.pow(single_loc_sampled[:, 0] + single_loc_sampled_flip[:, 0], exponent=2))
+            single_consistency_loc_loss_y = torch.mean(torch.pow(single_loc_sampled[:, 1] - single_loc_sampled_flip[:, 1], exponent=2))
+            single_consistency_loc_loss_w = torch.mean(torch.pow(single_loc_sampled[:, 2] - single_loc_sampled_flip[:, 2], exponent=2))
+            single_consistency_loc_loss_h = torch.mean(torch.pow(single_loc_sampled[:, 3] - single_loc_sampled_flip[:, 3], exponent=2))
 
-        consistency_loc_loss = torch.div(
-            consistency_loc_loss_x + consistency_loc_loss_y + consistency_loc_loss_w + consistency_loc_loss_h,
-            4)
-
+            single_consistency_loc_loss = torch.div(
+                single_consistency_loc_loss_x + single_consistency_loc_loss_y + single_consistency_loc_loss_w + single_consistency_loc_loss_h,
+                4)
+            consistency_loc_losses[idx] = single_consistency_loc_loss
     else:
         consistency_conf_loss = torch.cuda.FloatTensor([0])
-        consistency_loc_loss = torch.cuda.FloatTensor([0])
+        consistency_loc_losses = torch.cuda.FloatTensor([0] * loc_mask_sample.size()[0])
 
-    consistency_loss = torch.div(consistency_conf_loss, 2) + consistency_loc_loss
+    consistency_loss = torch.div(consistency_conf_loss, 2) + torch.squeeze(consistency_loc_losses)
     return consistency_loss
 
 
@@ -263,10 +265,8 @@ def get_uncertainty(net, loss_module, unlabeled_loader):
             inputs = inputs.cuda()
             # labels = labels.cuda()
 
-            scores, features = net(inputs)
-            pred_loss = loss_module(features) # pred_loss = criterion(scores, labels) # ground truth loss
-            pred_loss = pred_loss.view(pred_loss.size(0))
-
+            scores, feats, feat4_3, feat_extra = net(inputs)
+            pred_loss = loss_module(feats, feat4_3, feat_extra) # pred_loss = criterion(scores, labels) # ground truth loss
             uncertainty = torch.cat((uncertainty, pred_loss), 0)
 
     return uncertainty.cpu()
@@ -309,55 +309,56 @@ def train(loss_module, dataset, data_loader, cfg, labeled_set, unlabeled_set, un
                 images, targets, semis = next(batch_iterator)
 
             images = images.cuda()
-            targets = [ann.cuda() for ann in targets]
+            targets = [ann.cuda() for ann in targets] # 32
 
             # forward
             t0 = time.time()
-            out, conf, conf_flip, loc, loc_flip, features = net(images)
+            out, conf, conf_flip, loc, loc_flip, feats, feat4_3, feat_extra = net(images)
             sup_image_binary_index = np.zeros([len(semis), 1])
 
             semis_index, new_semis = [], []
             for iii, super_image in enumerate(range(len(semis))):
-                new_semis.append(int(semis[super_image]))
+                new_semis.append(int(semis[super_image])) # 32
                 if (int(semis[super_image]) > 0):
                     sup_image_binary_index[super_image] = 1
-                    semis_index.append(super_image)
+                    semis_index.append(super_image) # 16
                 else:
                     sup_image_binary_index[super_image] = 0
 
                 if (int(semis[len(semis) - 1 - super_image]) == 0):
-                    del targets[len(semis) - 1 - super_image]
+                    del targets[len(semis) - 1 - super_image] # 32 -> 16
 
             sup_image_index = np.where(sup_image_binary_index == 1)[0]
-            loc_data, conf_data, priors = out
+            loc_data, conf_data, priors = out # 32, 32, 8732
 
             if (len(sup_image_index) != 0):
-                loc_data = loc_data[sup_image_index, :, :]
-                conf_data = conf_data[sup_image_index, :, :]
+                loc_data = loc_data[sup_image_index, :, :] # 16
+                conf_data = conf_data[sup_image_index, :, :] # 16
                 output = (loc_data, conf_data, priors)
 
-            consistency_loss = compute_consistency_loss(conf, loc, conf_flip, loc_flip, conf_consistency_criterion)
-            ramp_weight = rampweight(iteration)
-            consistency_loss = torch.mul(consistency_loss, ramp_weight)
+            consistency_losses = compute_consistency_loss(conf, loc, conf_flip, loc_flip, conf_consistency_criterion) # 32
+            ramp_weight = rampweight(iteration) # 1
+            consistency_losses = torch.mul(consistency_losses, ramp_weight) # 32
 
             if (len(sup_image_index) == 0):
-                loss_l, loss_c = torch.cuda.FloatTensor([0]), torch.cuda.FloatTensor([0])
+                losses_l, losses_c = torch.cuda.FloatTensor([0]), torch.cuda.FloatTensor([0])
             else:
-                loss_l, loss_c = criterion(output, targets, np.array(new_semis)[semis_index])
-            target_loss = loss_l + loss_c + consistency_loss
+                losses_l, losses_c = criterion(output, targets, np.array(new_semis)[semis_index])
+            target_loss = losses_l + losses_c + consistency_losses[sup_image_index] # 16
+            loss_l = torch.sum(losses_l)
+            loss_c = torch.sum(losses_c)
+            consistency_loss = torch.mean(consistency_losses)
+            ssl_loss = loss_l + loss_c + consistency_loss # 1
 
             if iteration > 80:
-                features[0] = features[0].detach()
-                features[1] = features[1].detach()
-                features[2] = features[2].detach()
-            pred_loss = loss_module(features)
-            pred_loss = pred_loss.view(pred_loss.size(0))
-            # TODO: Target_loss must be tensor(list)
-            # TODO: Single tensor for now
-            module_loss   = LossPredLoss(pred_loss, target_loss, margin=1)
-            loss            = target_loss + 1 * module_loss
+                feats = feats.detach()
+                feat4_3 = feat4_3.detach()
+                feat_extra = feat_extra.detach()
+            pred_loss = loss_module(feats[sup_image_index, :, :], feat4_3[sup_image_index, :, :], feat_extra[sup_image_index, :, :])
+            ll_loss = LossPredLoss(pred_loss, target_loss, margin=1) # 1
+            loss = ssl_loss + 1 * ll_loss # 1
 
-            pbar.set_description(f"[train] target_loss: {target_loss}, module_loss: {module_loss} ")
+            pbar.set_description(f"[train] ssl_loss: {ssl_loss}, ll_loss: {ll_loss} ")
 
             if (loss.data > 0):
                 optimizer.zero_grad()
@@ -376,7 +377,8 @@ def train(loss_module, dataset, data_loader, cfg, labeled_set, unlabeled_set, un
 
                     'ramp_weight': float(ramp_weight),
                     'loss': loss.data,
-                    'target_loss': target_loss.data,
+                    'll_loss': ll_loss.data,
+                    'ssl_loss': ssl_loss.data,
                     'loss_c': loss_c,
                     'loss_l': loss_l.data,
                     'consistency_loss': consistency_loss.data,
@@ -384,7 +386,11 @@ def train(loss_module, dataset, data_loader, cfg, labeled_set, unlabeled_set, un
             else:
                 print("Loss is 0")
 
-            if (float(loss) > 100 or torch.isnan(loss)):
+            if (torch.isnan(ll_loss)):
+                loss_module = LossNet().cuda()
+                break
+
+            if (float(ssl_loss) > 100 or torch.isnan(ssl_loss)):
                 # if the net diverges, go back to point 0 and train from scratch
                 break
             t1 = time.time()
@@ -392,8 +398,8 @@ def train(loss_module, dataset, data_loader, cfg, labeled_set, unlabeled_set, un
             if iteration % 100 == 0:
                 print('timer: %.4f sec.' % (t1 - t0))
                 print('iter ' + repr(
-                    iteration) + ': loss: %.4f , loss_c: %.4f , loss_l: %.4f , loss_con: %.4f, lr : %.4f, super_len : %d\n' % (
-                          loss.data, loss_c.data, loss_l.data, consistency_loss.data,
+                    iteration) + ': loss: %.4f , ll_loss: %.4f , ssl_loss: %.4f , loss_c: %.4f , loss_l: %.4f , loss_con: %.4f, lr : %.4f, super_len : %d\n' % (
+                          loss.data, ll_loss.data, ssl_loss.data, loss_c.data, loss_l.data, consistency_loss.data,
                           float(optimizer.param_groups[0]['lr']),
                           len(sup_image_index)))
 
