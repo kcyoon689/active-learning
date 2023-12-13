@@ -89,6 +89,7 @@ class SSD_CON(nn.Module):
             x = self.vgg[k](x)
 
         s = self.L2Norm(x)
+        feat4_3 = s.clone()
         sources.append(s)
 
         # apply vgg up to fc7
@@ -97,12 +98,13 @@ class SSD_CON(nn.Module):
 
         # just a name so we can later point to return this
         sources.append(x)
-        feats = x
+        feats = x.clone()
 
         # apply extra layers and cache source layer outputs
         for k, v in enumerate(self.extras):
             x = F.relu(v(x), inplace=True)
             if k % 2 == 1:
+                feat_extra = x.clone()
                 sources.append(x)
 
         # apply multibox head to source layers
@@ -175,7 +177,7 @@ class SSD_CON(nn.Module):
         if self.phase == "test":
             return output
         else:
-            return output, conf, conf_flip, loc, loc_flip, feats
+            return output, conf, conf_flip, loc, loc_flip, feats, feat4_3, feat_extra
 
     def load_weights(self, base_file):
         other, ext = os.path.splitext(base_file)

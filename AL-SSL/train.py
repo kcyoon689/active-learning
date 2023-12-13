@@ -17,10 +17,14 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.backends.cudnn as cudnn
 import torch.nn.init as init
+import torch.optim.lr_scheduler as lr_scheduler
+import torch.utils.data.dataloader as DataLoader
 from tqdm import trange
+from subset_sequential_sampler import SubsetSequentialSampler
 
 from active_learning import combined_score, active_learning_inconsistency, active_learning_entropy
 from models.csd import build_ssd_con
+from models.lossnet import LossNet
 from data import *
 from layers.modules import MultiBoxLoss
 from loaders import create_loaders, change_loaders
@@ -228,7 +232,47 @@ def rampweight(iteration):
     return ramp_weight
 
 
-def train(dataset, data_loader, cfg, labeled_set, unlabeled_set, unsupervised_dataset, indices):
+def LossPredLoss(input, target, margin=1.0, reduction='mean'):
+    assert len(input) % 2 == 0, 'the batch size is not even.'
+    assert input.shape == input.flip(0).shape
+
+    input = (input - input.flip(0))[:len(input)//2] # [l_1 - l_2B, l_2 - l_2B-1, ... , l_B - l_B+1], where batch_size = 2B
+    target = (target - target.flip(0))[:len(target)//2]
+    target = target.detach()
+
+    one = 2 * torch.sign(torch.clamp(target, min=0)) - 1 # 1 operation which is defined by the authors
+
+    if reduction == 'mean':
+        loss = torch.sum(torch.clamp(margin - one * input, min=0))
+        loss = loss / input.size(0) # Note that the size of input is already halved
+    elif reduction == 'none':
+        loss = torch.clamp(margin - one * input, min=0)
+    else:
+        NotImplementedError()
+
+    return loss
+
+
+def get_uncertainty(net, loss_module, unlabeled_loader):
+    net.eval()
+    loss_module.eval()
+    uncertainty = torch.tensor([]).cuda()
+
+    with torch.no_grad():
+        for (inputs, labels) in unlabeled_loader:
+            inputs = inputs.cuda()
+            # labels = labels.cuda()
+
+            scores, features = net(inputs)
+            pred_loss = loss_module(features) # pred_loss = criterion(scores, labels) # ground truth loss
+            pred_loss = pred_loss.view(pred_loss.size(0))
+
+            uncertainty = torch.cat((uncertainty, pred_loss), 0)
+
+    return uncertainty.cpu()
+
+
+def train(loss_module, dataset, data_loader, cfg, labeled_set, unlabeled_set, unsupervised_dataset, indices):
     # net, optimizer = load_net_optimizer_multi(cfg)
     criterion = MultiBoxLoss(cfg['num_classes'], 0.5, True, 0, True, 3, 0.5,
                              False, args.cuda)
@@ -248,9 +292,13 @@ def train(dataset, data_loader, cfg, labeled_set, unlabeled_set, unsupervised_da
 
     while finish_flag:
         net, optimizer = load_net_optimizer_multi(cfg)
+        optimizer_module = optim.SGD(loss_module.parameters(), lr=0.1, momentum=0.9, weight_decay=5e-4)
+        scheduler_module = lr_scheduler.MultiStepLR(optimizer_module, milestones=[96])
         net.train()
+        loss_module.train()
         pbar = trange(cfg['max_iter'])
         for iteration in pbar:
+            scheduler_module.step()
             if iteration in cfg['lr_steps']:
                 step_index += 1
                 adjust_learning_rate(optimizer, args.gamma, step_index)
@@ -265,7 +313,7 @@ def train(dataset, data_loader, cfg, labeled_set, unlabeled_set, unsupervised_da
 
             # forward
             t0 = time.time()
-            out, conf, conf_flip, loc, loc_flip, _ = net(images)
+            out, conf, conf_flip, loc, loc_flip, features = net(images)
             sup_image_binary_index = np.zeros([len(semis), 1])
 
             semis_index, new_semis = [], []
@@ -296,14 +344,27 @@ def train(dataset, data_loader, cfg, labeled_set, unlabeled_set, unsupervised_da
                 loss_l, loss_c = torch.cuda.FloatTensor([0]), torch.cuda.FloatTensor([0])
             else:
                 loss_l, loss_c = criterion(output, targets, np.array(new_semis)[semis_index])
-            loss = loss_l + loss_c + consistency_loss
-            pbar.set_description(f"[train] loss: {loss} ")
-            # TODO: The loss is the target loss of LL4AL
+            target_loss = loss_l + loss_c + consistency_loss
+
+            if iteration > 80:
+                features[0] = features[0].detach()
+                features[1] = features[1].detach()
+                features[2] = features[2].detach()
+            pred_loss = loss_module(features)
+            pred_loss = pred_loss.view(pred_loss.size(0))
+            # TODO: Target_loss must be tensor(list)
+            # TODO: Single tensor for now
+            module_loss   = LossPredLoss(pred_loss, target_loss, margin=1)
+            loss            = target_loss + 1 * module_loss
+
+            pbar.set_description(f"[train] target_loss: {target_loss}, module_loss: {module_loss} ")
 
             if (loss.data > 0):
                 optimizer.zero_grad()
+                optimizer_module.zero_grad()
                 loss.backward()
                 optimizer.step()
+                optimizer_module.step()
 
                 # log metrics to wandb
                 wandb.log({
@@ -315,6 +376,7 @@ def train(dataset, data_loader, cfg, labeled_set, unlabeled_set, unsupervised_da
 
                     'ramp_weight': float(ramp_weight),
                     'loss': loss.data,
+                    'target_loss': target_loss.data,
                     'loss_c': loss_c,
                     'loss_l': loss_l.data,
                     'consistency_loss': consistency_loss.data,
@@ -394,7 +456,9 @@ def main():
     )
     if args.cuda: cudnn.benchmark = True
     supervised_dataset, supervised_data_loader, unsupervised_dataset, unsupervised_data_loader, indices, labeled_set, unlabeled_set = create_loaders(args)
+    loss_module = LossNet().cuda()
     net, net_name = train(
+        loss_module=loss_module,
         dataset=supervised_dataset,
         data_loader=supervised_data_loader,
         cfg=args.cfg,
@@ -440,13 +504,21 @@ def main():
             assert len(list(set(labeled_set) | set(unlabeled_set))) == args.num_total_images
             assert len(list(set(labeled_set) & set(unlabeled_set))) == 0
 
-        # TODO: Pick data for human annotation as acquisition_budget from acquisition_budget*2 using LL4AL (prediction)
-        # TODO: The rest (acquisition_budget) is merged to unlabeled_set
-        labeled_set += selected_set
+            selected_set_loader = DataLoader(unsupervised_dataset, batch_size=1,
+                                                sampler=SubsetSequentialSampler(selected_set),
+                                                num_workers=args.num_workers,
+                                                collate_fn=detection_collate,
+                                                pin_memory=True)
+
+            uncertainty = get_uncertainty(net, loss_module, selected_set_loader)
+            arg = np.argsort(uncertainty)
+            labeled_set += list(torch.tensor(selected_set)[arg][-args.acquisition_budget:].numpy())
+            unlabeled_set += list(torch.tensor(selected_set)[arg][:-args.acquisition_budget].numpy())
 
         supervised_data_loader, unsupervised_data_loader = change_loaders(args, supervised_dataset,
             unsupervised_dataset, labeled_set, unlabeled_set, indices, net_name, pseudo=args.do_PL)
         net, net_name = train(
+            loss_module=loss_module,
             dataset=supervised_dataset,
             data_loader=supervised_data_loader,
             cfg=args.cfg,
