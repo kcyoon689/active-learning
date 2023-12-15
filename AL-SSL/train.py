@@ -18,9 +18,10 @@ import torch.optim as optim
 import torch.backends.cudnn as cudnn
 import torch.nn.init as init
 import torch.optim.lr_scheduler as lr_scheduler
-import torch.utils.data.dataloader as DataLoader
+from torch.utils.data import DataLoader
 from tqdm import trange
-from subset_sequential_sampler import SubsetSequentialSampler
+from torch.utils.data.sampler import SequentialSampler
+# from subset_sequential_sampler import SubsetSequentialSampler
 
 from active_learning import combined_score, active_learning_inconsistency, active_learning_entropy
 from models.csd import build_ssd_con
@@ -36,6 +37,10 @@ torch.manual_seed(314)
 warnings.filterwarnings("ignore")
 
 
+COUNT_NEW_SSL = 0
+COUNT_NEW_LL = 0
+
+
 def str2bool(v):
     return v.lower() in ("yes", "true", "t", "1")
 
@@ -46,8 +51,8 @@ class get_al_hyperparams():
         self.dataset_path = {'voc': '/home/yoonk/data/VOC0712',
                              'coco': '/home/yoonk/data/coco'}
 
-        self.num_ims = {'voc': 16551, 'coco': 8208} # 82081
-        self.num_init = {'voc': 2011, 'coco': 500} # 5000
+        self.num_ims = {'voc': 16551, 'coco': 82081} # 82081
+        self.num_init = {'voc': 2011, 'coco': 5000} # 5000
         self.pseudo_threshold = {'voc': 0.99, 'coco': 0.75}
         self.config = {'voc': voc300, 'coco': coco}
         self.batch_size = {'voc': 16, 'coco': 32}
@@ -91,7 +96,7 @@ parser.add_argument('--num_total_images', default=al_hyperparams.get_num_ims(), 
                     help='Number of images in the dataset')
 parser.add_argument('--num_initial_labeled_set', default=al_hyperparams.get_num_init(), type=int,
                     help='Number of initially labeled images')
-parser.add_argument('--acquisition_budget', default=100, type=int,
+parser.add_argument('--acquisition_budget', default=1000, type=int,
                     help='Active labeling cycle budget') # 1000
 parser.add_argument('--multiple_select', default=2, type=int,
                     help='Active labeling multiple selected candidate')
@@ -101,7 +106,7 @@ parser.add_argument('--criterion_select', default='combined',
                     choices=['random', 'entropy', 'consistency', 'combined'],
                     help='Active learning acquisition score')
 parser.add_argument('--filter_entropy_num', default=3000, type=int,
-                    help='How many samples to pre-filer with entropy')
+                    help='How many samples to pre-filer with entropy') # 3000
 parser.add_argument('--id', default=2, type=int,
                     help='the id of the experiment')
 parser.add_argument('--basenet', default='vgg16_reducedfc.pth',
@@ -261,18 +266,20 @@ def get_uncertainty(net, loss_module, unlabeled_loader):
     uncertainty = torch.tensor([]).cuda()
 
     with torch.no_grad():
-        for (inputs, labels) in unlabeled_loader:
+        for (inputs, labels, _) in unlabeled_loader:
             inputs = inputs.cuda()
             # labels = labels.cuda()
 
-            scores, feats, feat4_3, feat_extra = net(inputs)
+            _, _, _, _, _, feats, feat4_3, feat_extra = net(inputs)
             pred_loss = loss_module(feats, feat4_3, feat_extra) # pred_loss = criterion(scores, labels) # ground truth loss
             uncertainty = torch.cat((uncertainty, pred_loss), 0)
 
-    return uncertainty.cpu()
+    return torch.squeeze(uncertainty).cpu()
 
 
 def train(loss_module, dataset, data_loader, cfg, labeled_set, unlabeled_set, unsupervised_dataset, indices):
+    global COUNT_NEW_SSL, COUNT_NEW_LL
+
     # net, optimizer = load_net_optimizer_multi(cfg)
     criterion = MultiBoxLoss(cfg['num_classes'], 0.5, True, 0, True, 3, 0.5,
                              False, args.cuda)
@@ -291,8 +298,10 @@ def train(loss_module, dataset, data_loader, cfg, labeled_set, unlabeled_set, un
     finish_flag = True
 
     while finish_flag:
+        print(f'new_ssl: {COUNT_NEW_SSL}th, new_ll: {COUNT_NEW_LL}th')
+
         net, optimizer = load_net_optimizer_multi(cfg)
-        optimizer_module = optim.SGD(loss_module.parameters(), lr=0.1, momentum=0.9, weight_decay=5e-4)
+        optimizer_module = optim.SGD(loss_module.parameters(), lr=0.01, momentum=0.9, weight_decay=5e-4)
         scheduler_module = lr_scheduler.MultiStepLR(optimizer_module, milestones=[96])
         net.train()
         loss_module.train()
@@ -356,9 +365,9 @@ def train(loss_module, dataset, data_loader, cfg, labeled_set, unlabeled_set, un
                 feat_extra = feat_extra.detach()
             pred_loss = loss_module(feats[sup_image_index, :, :], feat4_3[sup_image_index, :, :], feat_extra[sup_image_index, :, :])
             ll_loss = LossPredLoss(pred_loss, target_loss, margin=1) # 1
-            loss = ssl_loss + 1 * ll_loss # 1
+            loss = ssl_loss + 0 * ll_loss # 1
 
-            pbar.set_description(f"[train] ssl_loss: {ssl_loss}, ll_loss: {ll_loss} ")
+            pbar.set_description(f"[train] ssl_loss: {ssl_loss:.2f}, ll_loss: {ll_loss:.2f} ")
 
             if (loss.data > 0):
                 optimizer.zero_grad()
@@ -388,10 +397,13 @@ def train(loss_module, dataset, data_loader, cfg, labeled_set, unlabeled_set, un
 
             if (torch.isnan(ll_loss)):
                 loss_module = LossNet().cuda()
+                COUNT_NEW_LL += 1
+                COUNT_NEW_SSL += 1
                 break
 
             if (float(ssl_loss) > 100 or torch.isnan(ssl_loss)):
                 # if the net diverges, go back to point 0 and train from scratch
+                COUNT_NEW_SSL += 1
                 break
             t1 = time.time()
 
@@ -504,22 +516,32 @@ def main():
                                                             unsupervised_data_loader)
 
             selected_set = list(np.array(unlabeled_set)[selected_range])
-            unlabeled_set = list(np.array(unlabeled_set)[unslected_range])
+            unselected_set = list(np.array(unlabeled_set)[unslected_range])
 
-            # assert that sizes of lists are correct and that there are no elements that are in both lists
-            assert len(list(set(labeled_set) | set(unlabeled_set))) == args.num_total_images
-            assert len(list(set(labeled_set) & set(unlabeled_set))) == 0
+            # assert that sizes of lists are correct and that there are no elements that are in three lists
+            assert len(list(set(labeled_set) | set(selected_set) | set(unselected_set))) == args.num_total_images
+            assert len(list(set(labeled_set) & set(selected_set))) == 0
+            assert len(list(set(selected_set) & set(unselected_set))) == 0
+            assert len(list(set(labeled_set) & set(unselected_set))) == 0
 
             selected_set_loader = DataLoader(unsupervised_dataset, batch_size=1,
-                                                sampler=SubsetSequentialSampler(selected_set),
+                                                sampler=SequentialSampler(selected_set),
                                                 num_workers=args.num_workers,
                                                 collate_fn=detection_collate,
                                                 pin_memory=True)
 
             uncertainty = get_uncertainty(net, loss_module, selected_set_loader)
             arg = np.argsort(uncertainty)
-            labeled_set += list(torch.tensor(selected_set)[arg][-args.acquisition_budget:].numpy())
-            unlabeled_set += list(torch.tensor(selected_set)[arg][:-args.acquisition_budget].numpy())
+            ll_selected_set = torch.squeeze(torch.tensor(selected_set)[arg][-args.acquisition_budget:]).cpu().numpy()
+            ll_unselected_set = torch.squeeze(torch.tensor(selected_set)[arg][:-args.acquisition_budget]).cpu().numpy()
+            labeled_set.extend(list(ll_selected_set))
+            unlabeled_set = []
+            unlabeled_set.extend(list(ll_unselected_set))
+            unlabeled_set.extend(list(unselected_set))
+
+            # assert that sizes of lists are correct and that there are no elements that are in both lists
+            assert len(list(set(labeled_set) | set(unlabeled_set))) == args.num_total_images
+            assert len(list(set(labeled_set) & set(unlabeled_set))) == 0
 
         supervised_data_loader, unsupervised_data_loader = change_loaders(args, supervised_dataset,
             unsupervised_dataset, labeled_set, unlabeled_set, indices, net_name, pseudo=args.do_PL)

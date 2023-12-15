@@ -38,10 +38,10 @@ def active_learning_inconsistency(args, batch_iterator, labeled_set, unlabeled_s
         if j > 10:
             break
         # print(j)
-        images, lab, _ = next(batch_iterator)
+        images, labels, _ = next(batch_iterator)
         images = images.cuda()
 
-        out, conf, conf_flip, loc, loc_flip, _ = net(images)
+        out, conf, conf_flip, loc, loc_flip, _, _, _ = net(images)
         loc, _, priors = out
 
         num = loc.size(0)  # batch size
@@ -114,10 +114,10 @@ def active_learning_entropy(args, batch_iterator, labeled_set, unlabeled_set, ne
         if j > 10:
             break
         # print(j)
-        images, lab, _ = next(batch_iterator)
+        images, labels, _ = next(batch_iterator)
         images = images.cuda()
 
-        out, _, _, _, _, _ = net(images)
+        out, _, _, _, _, _, _, _ = net(images)
         loc, conf, priors = out
         conf = torch.softmax(conf.detach(), dim=2)
 
