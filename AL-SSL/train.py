@@ -30,7 +30,7 @@ random.seed(314)
 torch.manual_seed(314)
 
 warnings.filterwarnings("ignore")
-
+COUNT_SSL = 0
 
 def str2bool(v):
     return v.lower() in ("yes", "true", "t", "1")
@@ -227,6 +227,7 @@ def rampweight(iteration):
 
 
 def train(dataset, data_loader, cfg, labeled_set, unlabeled_set, unsupervised_dataset, indices):
+    global COUNT_SSL
     # net, optimizer = load_net_optimizer_multi(cfg)
     criterion = MultiBoxLoss(cfg['num_classes'], 0.5, True, 0, True, 3, 0.5,
                              False, args.cuda)
@@ -245,6 +246,8 @@ def train(dataset, data_loader, cfg, labeled_set, unlabeled_set, unsupervised_da
     finish_flag = True
 
     while finish_flag:
+        print(f'ssl: {COUNT_SSL}th')
+
         net, optimizer = load_net_optimizer_multi(cfg)
         net.train()
         pbar = trange(cfg['max_iter'])
@@ -320,6 +323,7 @@ def train(dataset, data_loader, cfg, labeled_set, unlabeled_set, unsupervised_da
 
             if (float(loss) > 100 or torch.isnan(loss)):
                 # if the net diverges, go back to point 0 and train from scratch
+                COUNT_SSL += 1
                 break
             t1 = time.time()
 
