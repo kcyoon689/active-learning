@@ -43,8 +43,10 @@ def str2bool(v):
 
 parser = argparse.ArgumentParser(
     description='Single Shot MultiBox Detector Evaluation')
-parser.add_argument('--trained_model', default='weights_voc_code/120000combined_id_2_pl_threshold_0.99_labeled_set_3011_.pth',
+parser.add_argument('--trained_model', default='/home/yoonk/workspace/active-learning/AL-SSL/weights/120combined_id_2_pl_threshold_0.75_labeled_set_6000_.pth',
                     type=str, help='Trained state_dict file path to open')
+# parser.add_argument('--trained_model', default='weights_voc_code/120000combined_id_2_pl_threshold_0.99_labeled_set_3011_.pth',
+#                     type=str, help='Trained state_dict file path to open')
 parser.add_argument('--save_folder', default='eval/', type=str,
                     help='File path to save results')
 parser.add_argument('--confidence_threshold', default=0.01, type=float,
@@ -53,7 +55,7 @@ parser.add_argument('--top_k', default=5, type=int,
                     help='Further restrict the number of predictions to parse')
 parser.add_argument('--cuda', default=True, type=str2bool,
                     help='Use cuda to train model')
-parser.add_argument('--voc_root', default='../../data/VOC0712/',
+parser.add_argument('--voc_root', default='/home/yoonk/data/coco/',
                     help='Location of VOC root directory')
 parser.add_argument('--cleanup', default=True, type=str2bool,
                     help='Cleanup and remove results files following eval')
@@ -450,8 +452,18 @@ if __name__ == '__main__':
     for folder in list_of_folders:
         list_nets = os.listdir(folder)
         for nnn in sorted(list_nets):
+            from collections import OrderedDict
+            net_name = os.path.join(folder, nnn)
+            state_dict = torch.load(net_name)
+            new_state_dict = OrderedDict()
+            for k, v in state_dict.items():
+                # name = k[7:] # remove `module.`
+                name = 'module.' + k # add `module.`
+                new_state_dict[name] = v
+            # load params
+            net.load_state_dict(new_state_dict)
 
-            net.load_state_dict(torch.load(os.path.join(folder, nnn)))
+            # net.load_state_dict(torch.load(os.path.join(folder, nnn)))
             net.eval()
             print('Finished loading model!')
             # load data

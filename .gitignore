@@ -165,3 +165,5 @@ AL-SSL/data/coco
 VOC_dataset/
 wandb/
 *.zip
+
+AL-SSL/eval/*

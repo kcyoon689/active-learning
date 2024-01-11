@@ -100,10 +100,10 @@ parser.add_argument('--acquisition_budget', default=1000, type=int,
                     help='Active labeling cycle budget') # 1000
 parser.add_argument('--multiple_select', default=2, type=int,
                     help='Active labeling multiple selected candidate')
-parser.add_argument('--num_cycles', default=5, type=int,
-                    help='Number of active learning cycles')
+parser.add_argument('--num_cycles', default=10, type=int,
+                    help='Number of active learning cycles') #Todo #default=5
 parser.add_argument('--criterion_select', default='combined',
-                    choices=['random', 'entropy', 'consistency', 'combined'],
+                    choices=['random', 'entropy', 'consistency', 'combined'], #Todo
                     help='Active learning acquisition score')
 parser.add_argument('--filter_entropy_num', default=3000, type=int,
                     help='How many samples to pre-filer with entropy') # 3000
@@ -139,7 +139,7 @@ parser.add_argument('--pseudo_threshold', default=al_hyperparams.get_pseudo_thre
                     help='pseudo label confidence threshold for voc dataset')
 parser.add_argument('--thresh', default=0.5, type=float,
                     help='we define an object if the probability of one class is above thresh')
-parser.add_argument('--do_AL', default=1, type=int, help='if 0 skip AL')
+parser.add_argument('--do_AL', default=1, type=int, help='if 0 skip AL') #Todo
 args = parser.parse_args()
 
 if torch.cuda.is_available():
@@ -185,10 +185,12 @@ def compute_consistency_loss(conf, loc, conf_flip, loc_flip, conf_consistency_cr
     conf_mask_sample = conf.clone()
     loc_mask_sample = loc.clone()
     conf_sampled = conf_mask_sample[mask_conf_index].view(-1, args.cfg['num_classes'])
+    loc_sampled = loc_mask_sample[mask_loc_index].view(-1, 4)
 
     conf_mask_sample_flip = conf_flip.clone()
     loc_mask_sample_flip = loc_flip.clone()
     conf_sampled_flip = conf_mask_sample_flip[mask_conf_index].view(-1, args.cfg['num_classes'])
+    loc_sampled_flip = loc_mask_sample_flip[mask_loc_index].view(-1, 4)
 
     if (mask_val.sum() > 0):
         # Compute Jenson-Shannon divergence (symmetric KL actually)
@@ -201,6 +203,15 @@ def compute_consistency_loss(conf, loc, conf_flip, loc_flip, conf_consistency_cr
         consistency_conf_loss = consistency_conf_loss_a + consistency_conf_loss_b
 
         # Compute location consistency loss
+        consistency_loc_loss_x = torch.mean(torch.pow(loc_sampled[:, 0] + loc_sampled_flip[:, 0], exponent=2))
+        consistency_loc_loss_y = torch.mean(torch.pow(loc_sampled[:, 1] - loc_sampled_flip[:, 1], exponent=2))
+        consistency_loc_loss_w = torch.mean(torch.pow(loc_sampled[:, 2] - loc_sampled_flip[:, 2], exponent=2))
+        consistency_loc_loss_h = torch.mean(torch.pow(loc_sampled[:, 3] - loc_sampled_flip[:, 3], exponent=2))
+
+        consistency_loc_loss = torch.div(
+            consistency_loc_loss_x + consistency_loc_loss_y + consistency_loc_loss_w + consistency_loc_loss_h,
+            4)
+
         consistency_loc_losses = torch.empty(size=(loc_mask_sample.size()[0], 1), device=consistency_conf_loss.device)
         for idx in range(loc_mask_sample.size()[0]):
             single_loc_sampled = loc_mask_sample[idx][mask_loc_index[idx]].view(-1, 4)
@@ -216,10 +227,12 @@ def compute_consistency_loss(conf, loc, conf_flip, loc_flip, conf_consistency_cr
             consistency_loc_losses[idx] = single_consistency_loc_loss
     else:
         consistency_conf_loss = torch.cuda.FloatTensor([0])
+        consistency_loc_loss = torch.cuda.FloatTensor([0])
         consistency_loc_losses = torch.cuda.FloatTensor([0] * loc_mask_sample.size()[0])
 
-    consistency_loss = torch.div(consistency_conf_loss, 2) + torch.squeeze(consistency_loc_losses)
-    return consistency_loss
+    consistency_loss = torch.div(consistency_conf_loss, 2) + consistency_loc_loss
+    consistency_losses = torch.div(consistency_conf_loss, 2) + torch.squeeze(consistency_loc_losses)
+    return consistency_loss, consistency_losses
 
 
 def rampweight(iteration):
@@ -301,7 +314,7 @@ def train(loss_module, dataset, data_loader, cfg, labeled_set, unlabeled_set, un
         print(f'new_ssl: {COUNT_NEW_SSL}th, new_ll: {COUNT_NEW_LL}th')
 
         net, optimizer = load_net_optimizer_multi(cfg)
-        optimizer_module = optim.SGD(loss_module.parameters(), lr=0.01, momentum=0.9, weight_decay=5e-4)
+        optimizer_module = optim.SGD(loss_module.parameters(), lr=0.1, momentum=0.9, weight_decay=5e-4)
         scheduler_module = lr_scheduler.MultiStepLR(optimizer_module, milestones=[96])
         net.train()
         loss_module.train()
@@ -345,29 +358,30 @@ def train(loss_module, dataset, data_loader, cfg, labeled_set, unlabeled_set, un
                 conf_data = conf_data[sup_image_index, :, :] # 16
                 output = (loc_data, conf_data, priors)
 
-            consistency_losses = compute_consistency_loss(conf, loc, conf_flip, loc_flip, conf_consistency_criterion) # 32
+            consistency_loss, consistency_losses = compute_consistency_loss(conf, loc, conf_flip, loc_flip, conf_consistency_criterion) # 32
             ramp_weight = rampweight(iteration) # 1
+            consistency_loss = torch.mul(consistency_loss, ramp_weight)
             consistency_losses = torch.mul(consistency_losses, ramp_weight) # 32
 
             if (len(sup_image_index) == 0):
                 losses_l, losses_c = torch.cuda.FloatTensor([0]), torch.cuda.FloatTensor([0])
             else:
-                losses_l, losses_c = criterion(output, targets, np.array(new_semis)[semis_index])
+                loss_l, loss_c, losses_l, losses_c = criterion(output, targets, np.array(new_semis)[semis_index])
             target_loss = losses_l + losses_c + consistency_losses[sup_image_index] # 16
-            loss_l = torch.sum(losses_l)
-            loss_c = torch.sum(losses_c)
-            consistency_loss = torch.mean(consistency_losses)
+            # loss_l = torch.sum(losses_l)
+            # loss_c = torch.sum(losses_c)
+            # consistency_loss = torch.mean(consistency_losses)
             ssl_loss = loss_l + loss_c + consistency_loss # 1
 
-            if iteration > 80:
+            if iteration >= 0: # 80
                 feats = feats.detach()
                 feat4_3 = feat4_3.detach()
                 feat_extra = feat_extra.detach()
             pred_loss = loss_module(feats[sup_image_index, :, :], feat4_3[sup_image_index, :, :], feat_extra[sup_image_index, :, :])
             ll_loss = LossPredLoss(pred_loss, target_loss, margin=1) # 1
-            loss = ssl_loss + 0 * ll_loss # 1
+            loss = ssl_loss + 1 * ll_loss # {weight: 1, 0.5, 0.1}
 
-            pbar.set_description(f"[train] ssl_loss: {ssl_loss:.2f}, ll_loss: {ll_loss:.2f} ")
+            pbar.set_description(f"[train] ssl_loss: {float(ssl_loss.data):.2f}, ll_loss: {ll_loss:.2f} ")
 
             if (loss.data > 0):
                 optimizer.zero_grad()

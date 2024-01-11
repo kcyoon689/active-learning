@@ -101,6 +101,10 @@ class MultiBoxLoss(nn.Module):
             single_loss_l = F.smooth_l1_loss(single_loc_p, single_loc_t, size_average=False)
             losses_l[idx] = single_loss_l
 
+        loc_p = loc_data[pos_idx].view(-1, 4)
+        loc_t = loc_t[pos_idx].view(-1, 4)
+        loss_l = F.smooth_l1_loss(loc_p, loc_t, size_average=False)
+
         # Compute max conf across batch for hard negative mining
         batch_conf = conf_data.view(-1, self.num_classes)
         loss_c = log_sum_exp(batch_conf) - batch_conf.gather(1, conf_t.view(-1, 1))
@@ -129,19 +133,44 @@ class MultiBoxLoss(nn.Module):
         losses_c = torch.empty(size=(len(semis), 1), device=conf_data.device)
         for idx in range(len(semis)):
             if real_labels[idx]:
-                conf_p_labels = conf_data[idx][(pos_idx[idx]+neg_idx[idx]).gt(0)]
+                single_conf_p_labels = conf_data[idx][(pos_idx[idx]+neg_idx[idx]).gt(0)]
                 targets_weighted_labels = conf_t[idx][(pos[idx] + neg[idx]).gt(0)]
             elif pseudo_labels[idx]:
-                conf_p_labels = conf_data[idx][(pos_idx[idx]).gt(0)]
+                single_conf_p_labels = conf_data[idx][(pos_idx[idx]).gt(0)]
                 targets_weighted_labels = conf_t[idx][(pos[idx]).gt(0)]
             else:
                 raise ValueError('Unlabeld data is included in supervised dataset')
 
-            conf_p_labels = conf_p_labels.view(-1, self.num_classes)
-            single_loss_c = F.cross_entropy(conf_p_labels, targets_weighted_labels, size_average=False)
+            single_conf_p_labels = single_conf_p_labels.view(-1, self.num_classes)
+            single_loss_c = F.cross_entropy(single_conf_p_labels, targets_weighted_labels, size_average=False)
             losses_c[idx] = single_loss_c
+
+        pos_idx_labels = pos_idx[real_labels]
+        neg_idx = neg_idx[real_labels]
+        conf_data_real = conf_data[real_labels]
+        conf_t_real = conf_t[real_labels]
+        pos_real = pos[real_labels]
+        neg_real = neg[real_labels]
+        pos_idx_pseudo = pos_idx[pseudo_labels]
+        conf_data_pseudo = conf_data[pseudo_labels]
+        conf_t_pseudo = conf_t[pseudo_labels]
+        pos_pseudo = pos[pseudo_labels]
+
+        conf_p_labels = conf_data_real[(pos_idx_labels+neg_idx).gt(0)].view(-1, self.num_classes)
+        conf_p_pseudo = conf_data_pseudo[(pos_idx_pseudo).gt(0)].view(-1, self.num_classes)
+        targets_weighted_labels = conf_t_real[(pos_real + neg_real).gt(0)]
+        targets_weighted_pseudo = conf_t_pseudo[(pos_pseudo).gt(0)]
+
+        loss_c_real = F.cross_entropy(conf_p_labels, targets_weighted_labels, size_average=False)
+        if targets_weighted_pseudo.shape[0] > 0:
+            loss_c_pseudo = F.cross_entropy(conf_p_pseudo, targets_weighted_pseudo, size_average=False)
+            loss_c = loss_c_real + loss_c_pseudo
+        else:
+            loss_c = loss_c_real
 
         N = num_pos.data.sum()
         losses_l /= N
         losses_c /= N
-        return torch.squeeze(losses_l), torch.squeeze(losses_c)
+        loss_l /= N
+        loss_c /= N
+        return loss_l, loss_c, torch.squeeze(losses_l), torch.squeeze(losses_c)
