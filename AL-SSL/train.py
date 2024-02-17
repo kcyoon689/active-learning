@@ -39,11 +39,11 @@ def str2bool(v):
 class get_al_hyperparams():
     def __init__(self, dataset_name='voc'):
         self.dataset_name = dataset_name
-        self.dataset_path = {'voc': '/home/yoonk/data/VOC0712',
-                             'coco': '/home/yoonk/data/coco'}
+        self.dataset_path = {'voc': '/home/user/data/VOCdevkit',
+                             'coco': '/home/user/data/coco'}
 
-        self.num_ims = {'voc': 16551, 'coco': 8208} # 82081
-        self.num_init = {'voc': 2011, 'coco': 500} # 5000
+        self.num_ims = {'voc': 16551, 'coco': 82081} # 82081
+        self.num_init = {'voc': 2011, 'coco': 5000} # 5000
         self.pseudo_threshold = {'voc': 0.99, 'coco': 0.75}
         self.config = {'voc': voc300, 'coco': coco}
         self.batch_size = {'voc': 16, 'coco': 32}
@@ -74,7 +74,9 @@ class get_al_hyperparams():
 parser = argparse.ArgumentParser(
     description='Single Shot MultiBox Detector Training With Pytorch')
 train_set = parser.add_mutually_exclusive_group()
+#TODO
 al_hyperparams = get_al_hyperparams('coco') # 'voc' for voc, 'coco' for coco
+parser.add_argument('--dataname', default='coco', type=str) #Todo
 parser.add_argument('--dataset_name', default=al_hyperparams.get_dataset_name(), type=str,
                     help='Dataset name')
 parser.add_argument('--cfg', default=al_hyperparams.get_config(), type=dict,
@@ -87,8 +89,8 @@ parser.add_argument('--num_total_images', default=al_hyperparams.get_num_ims(), 
                     help='Number of images in the dataset')
 parser.add_argument('--num_initial_labeled_set', default=al_hyperparams.get_num_init(), type=int,
                     help='Number of initially labeled images')
-parser.add_argument('--acquisition_budget', default=100, type=int,
-                    help='Active labeling cycle budget') # 1000
+parser.add_argument('--acquisition_budget', default=1000, type=int,
+                    help='Active labeling cycle budget') #Todo, default = 1000
 parser.add_argument('--num_cycles', default=5, type=int,
                     help='Number of active learning cycles')
 parser.add_argument('--criterion_select', default='combined',
@@ -128,7 +130,7 @@ parser.add_argument('--pseudo_threshold', default=al_hyperparams.get_pseudo_thre
                     help='pseudo label confidence threshold for voc dataset')
 parser.add_argument('--thresh', default=0.5, type=float,
                     help='we define an object if the probability of one class is above thresh')
-parser.add_argument('--do_AL', default=1, type=int, help='if 0 skip AL')
+parser.add_argument('--do_AL', default=1, type=int, help='if 0 skip AL') #TODO
 args = parser.parse_args()
 
 if torch.cuda.is_available():
@@ -216,7 +218,7 @@ def rampweight(iteration):
     if (iteration < ramp_up_end):
         ramp_weight = math.exp(-5 * math.pow((1 - iteration / ramp_up_end), 2))
     elif (iteration > ramp_down_start):
-        ramp_weight = math.exp(-12.5 * math.pow((1 - (120000 - iteration) / 20000), 2))
+        ramp_weight = math.exp(-12.5 * math.pow((1 - (120000 - iteration) / 20000), 2)) #TODO
     else:
         ramp_weight = 1
 
@@ -327,7 +329,7 @@ def train(dataset, data_loader, cfg, labeled_set, unlabeled_set, unsupervised_da
                 break
             t1 = time.time()
 
-            if iteration % 100 == 0:
+            if iteration % 1000 == 0:
                 print('timer: %.4f sec.' % (t1 - t0))
                 print('iter ' + repr(
                     iteration) + ': loss: %.4f , loss_c: %.4f , loss_l: %.4f , loss_con: %.4f, lr : %.4f, super_len : %d\n' % (
@@ -335,13 +337,13 @@ def train(dataset, data_loader, cfg, labeled_set, unlabeled_set, unsupervised_da
                           float(optimizer.param_groups[0]['lr']),
                           len(sup_image_index)))
 
-            if iteration != 0 and (iteration + 1) % 120 == 0:
+            if iteration != 0 and (iteration + 1) % 10000 == 0:
                 print('Saving state, iter:', iteration)
                 net_name = 'weights/' + repr(iteration + 1) + args.criterion_select + '_id_' + str(args.id)  + \
-                           '_pl_threshold_' + str(args.pseudo_threshold) + '_labeled_set_' + str(len(labeled_set)) + '_.pth'
-                torch.save(net.state_dict(), net_name)
+                           '_pl_threshold_' + str(args.pseudo_threshold) + '_labeled_set_' + str(len(labeled_set)) + '_dataset_' + str(args.dataname)+ '_.pth'
+                torch.save(net.state_dpythonict(), net_name)
 
-            if iteration >= 119:
+            if iteration >= 29000: #TODO, defalut = 119000 
                 finish_flag = False
     return net, net_name
 
@@ -378,7 +380,7 @@ def main():
         'batch_size': 32,
         'learning_rate': 0.02,
         'architecture': 'CNN',
-        'dataset': 'COCO',
+        'dataset': 'COCO', #TODO
         'epochs': args.cfg['max_iter'],
         'num_classes': args.cfg['num_classes'],
         'lr_steps': args.cfg['lr_steps'],
